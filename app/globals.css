@@ -1,21 +1,115 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Oyun Ana Renkleri (2048 referansından) */
+  --background: #faf8ef;
+  --background-secondary: #f5f0e5;
+  --foreground: #776e65;
+  --text-muted: #939393;
+
+  /* Kart/Panel Renkleri */
+  --card-primary: #bbada0;
+  --card-primary-dark: #a8998d;
+  --card-secondary: #a09080;
+  --card-accent: #cdc1b4;
+
+  /* Buton Renkleri */
+  --button-primary: #8f7a66;
+  --button-primary-dark: #7d6a56;
+  --button-hover: #9f8a76;
+
+  /* Oyun Tile Renkleri */
+  --tile-2: #eee6da;
+  --tile-2-dark: #eee4da;
+  --tile-4: #ede2c8;
+  --tile-4-dark: #ede0c8;
+  --tile-8: #f3b27a;
+  --tile-8-dark: #f2b179;
+  --tile-16: #f69764;
+  --tile-16-dark: #f59563;
+  --tile-32: #f77e60;
+  --tile-32-dark: #f67c5f;
+  --tile-64: #f75f3c;
+  --tile-64-dark: #f65e3b;
+  --tile-high: #edc22e;
+  --tile-high-alt: #edcc61;
+
+  /* Vurgu Renkleri */
+  --accent-orange: #f67c5f;
+  --accent-orange-dark: #e56e51;
+  --accent-yellow: #edc22e;
+  --accent-yellow-light: #edcc61;
+
+  /* Overlay & Modal */
+  --overlay: rgba(0, 0, 0, 0.4);
+  --modal-bg: #bbada0;
+  --modal-bg-dark: #a09080;
+
+  /* Radius & Shadow */
+  --radius: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+
+  /* Spacing (rem değerleri) */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
 }
 
 @theme inline {
+  /* Ana Renk Sistemi */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-muted: var(--text-muted);
+
+  /* Mission Game Renk Paleti */
+  --color-primary: var(--card-primary);
+  --color-primary-dark: var(--card-primary-dark);
+  --color-secondary: var(--card-secondary);
+  --color-accent: var(--card-accent);
+
+  /* Buton Renkleri */
+  --color-button: var(--button-primary);
+  --color-button-dark: var(--button-primary-dark);
+  --color-button-hover: var(--button-hover);
+
+  /* Tile Renk Sistemi */
+  --color-tile-light: var(--tile-2);
+  --color-tile-light-dark: var(--tile-2-dark);
+  --color-tile-warm: var(--tile-8);
+  --color-tile-warm-dark: var(--tile-8-dark);
+  --color-tile-hot: var(--tile-32);
+  --color-tile-hot-dark: var(--tile-32-dark);
+  --color-tile-gold: var(--tile-high);
+  --color-tile-gold-alt: var(--tile-high-alt);
+
+  /* Vurgu Renkleri */
+  --color-accent-orange: var(--accent-orange);
+  --color-accent-orange-dark: var(--accent-orange-dark);
+  --color-accent-yellow: var(--accent-yellow);
+  --color-accent-yellow-light: var(--accent-yellow-light);
+
+  /* Font Sistemi */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Border Radius */
+  --radius: var(--radius);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #2d2d2d;
+    --background-secondary: #1a1a1a;
+    --foreground: #f9f6f2;
   }
 }
 
