@@ -220,8 +220,12 @@ class SocketClient {
     this.socket?.emit("close_guesses", { roomCode, targetPlayerId });
   }
 
-  voteGuess(roomCode: string, guessId: string, isCorrect: boolean): void {
-    this.socket?.emit("vote_guess", { roomCode, guessId, isCorrect });
+  submitVote(roomCode: string, guessId: string, isCorrect: boolean): void {
+    this.socket?.emit("submit_vote", { roomCode, guessId, isCorrect });
+  }
+
+  closeVoting(roomCode: string): void {
+    this.socket?.emit("close_voting", { roomCode });
   }
 
   getPublicRooms(): void {
@@ -288,4 +292,3 @@ class SocketClient {
 // Export singleton instance
 export const socketClient = SocketClient.getInstance();
 export default socketClient;
-

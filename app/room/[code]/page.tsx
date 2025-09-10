@@ -8,6 +8,10 @@ import { PlayerList } from "@/components/PlayerList";
 import { ReadyPanel } from "@/components/ReadyPanel";
 import { TaskPanel } from "@/components/TaskPanel";
 import { WaitingPanel } from "@/components/WaitingPanel";
+import { GuessWindow } from "@/components/GuessWindow";
+import { GuessList } from "@/components/GuessList";
+import { VotingPanel } from "@/components/VotingPanel";
+import { ResultsPanel } from "@/components/ResultsPanel";
 import { DevTools } from "@/components/DevTools";
 
 export default function RoomPage() {
@@ -20,6 +24,14 @@ export default function RoomPage() {
     currentPlayer,
     currentTask,
     taskStats,
+    currentGuessTarget,
+    guessDeadline,
+    currentGuesses,
+    myGuess,
+    votingDeadline,
+    myVotes,
+    actualTask,
+    roundScores,
     connectionState,
     initializeSocket,
     getRoomState,
@@ -172,14 +184,69 @@ export default function RoomPage() {
             );
           }
 
-          // Game running - show appropriate panel based on task state
+          // Game running - show appropriate panel based on game state
           if (currentRoom.status === "running") {
-            // Has task and not completed - show task panel
+            const playersMap = new Map(
+              currentRoom.players.map((p) => [p.id, p])
+            );
+
+            // Results phase - scoring sonuçları
+            if (roundScores.length > 0) {
+              return (
+                <ResultsPanel
+                  roundScores={roundScores}
+                  players={currentRoom.players}
+                  isWaitingForNextRound={true}
+                />
+              );
+            }
+
+            // Voting phase - oylama aşaması
+            if (votingDeadline && actualTask && currentGuessTarget) {
+              const isTargetPlayer = currentGuessTarget.id === currentPlayer.id;
+
+              return (
+                <VotingPanel
+                  guesses={currentGuesses}
+                  targetPlayer={currentGuessTarget}
+                  actualTask={actualTask}
+                  deadline={votingDeadline}
+                  isTargetPlayer={isTargetPlayer}
+                  playersMap={playersMap}
+                />
+              );
+            }
+
+            // Guess phase - tahmin aşaması
+            if (currentGuessTarget && guessDeadline) {
+              const isMyGuess = currentGuessTarget.id === currentPlayer.id;
+
+              return (
+                <div className="space-y-6">
+                  <GuessWindow
+                    targetPlayer={currentGuessTarget}
+                    deadline={guessDeadline}
+                    isMyGuess={isMyGuess}
+                  />
+
+                  {currentGuesses.length > 0 && (
+                    <GuessList
+                      guesses={currentGuesses}
+                      targetPlayer={currentGuessTarget}
+                      playersMap={playersMap}
+                      showActualTask={false}
+                    />
+                  )}
+                </div>
+              );
+            }
+
+            // Task phase - görev aşaması
             if (currentTask && !currentTask.completed) {
               return <TaskPanel task={currentTask} taskStats={taskStats} />;
             }
 
-            // Task completed or no task yet - show waiting panel
+            // Task completed, waiting for others or next phase
             if (currentTask?.completed) {
               return (
                 <WaitingPanel
@@ -197,21 +264,106 @@ export default function RoomPage() {
 
           // Game ended
           if (currentRoom.status === "ended") {
+            const sortedPlayers = [...currentRoom.players].sort(
+              (a, b) => b.score - a.score
+            );
+            const winner = sortedPlayers[0];
+
             return (
-              <div className="w-full bg-gradient-to-br from-secondary to-accent p-6 rounded-xl shadow-xl text-center">
-                <h3 className="text-white font-bold text-xl mb-4">
-                  🏁 Oyun Bitti
-                </h3>
-                <div className="text-white/90 space-y-2">
-                  <p>Tebrikler! Oyun başarıyla tamamlandı.</p>
-                  <div className="mt-4">
-                    <button
-                      onClick={() => window.location.reload()}
-                      className="px-6 py-2 bg-white/20 hover:bg-white/30 text-white font-medium rounded-lg transition-colors"
-                    >
-                      Yeni Oyun
-                    </button>
+              <div className="w-full bg-gradient-to-br from-yellow-500 to-orange-600 p-6 rounded-xl shadow-xl">
+                <div className="text-center mb-6">
+                  <h2 className="text-white font-bold text-3xl mb-2">
+                    🏁 Oyun Bitti!
+                  </h2>
+                  {winner && (
+                    <div className="text-white/90 space-y-2">
+                      <div className="text-2xl">🥇</div>
+                      <div className="text-xl font-bold">
+                        {winner.nickname} Kazandı!
+                      </div>
+                      <div className="text-lg">
+                        {winner.score} puan ile birinci oldu
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Final Leaderboard */}
+                <div className="bg-white/10 rounded-lg p-4 mb-6">
+                  <h3 className="text-white font-bold text-lg text-center mb-4">
+                    📊 Final Sıralama
+                  </h3>
+                  <div className="space-y-3">
+                    {sortedPlayers.map((player, index) => {
+                      const getRankIcon = (i: number) => {
+                        if (i === 0) return "🥇";
+                        if (i === 1) return "🥈";
+                        if (i === 2) return "🥉";
+                        return `${i + 1}.`;
+                      };
+
+                      return (
+                        <div
+                          key={player.id}
+                          className={`flex justify-between items-center p-3 rounded-lg ${
+                            index === 0
+                              ? "bg-yellow-500/20 border border-yellow-500/30"
+                              : "bg-white/10"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="text-2xl">
+                              {getRankIcon(index)}
+                            </span>
+                            <div>
+                              <div className="text-white font-bold">
+                                {player.nickname}
+                                {player.id === currentPlayer?.id && " (siz)"}
+                              </div>
+                              {index === 0 && (
+                                <div className="text-yellow-300 text-sm">
+                                  👑 Şampiyon
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-white font-bold text-xl">
+                            {player.score}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
+                </div>
+
+                {/* Game Summary */}
+                <div className="bg-white/10 rounded-lg p-4 mb-6">
+                  <div className="text-center text-white/90 space-y-2">
+                    <div className="text-sm">
+                      🎮 Toplam {sortedPlayers.length} oyuncu katıldı
+                    </div>
+                    <div className="text-sm">
+                      🏆 En yüksek skor: {winner?.score || 0} puan
+                    </div>
+                    <div className="text-sm">⭐ Tebrikler herkese!</div>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="space-y-3">
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="w-full px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg transition-colors shadow-lg"
+                  >
+                    🎮 Yeni Oyun Başlat
+                  </button>
+
+                  <button
+                    onClick={() => router.push("/")}
+                    className="w-full px-6 py-2 bg-white/20 hover:bg-white/30 text-white font-medium rounded-lg transition-colors"
+                  >
+                    🏠 Ana Sayfaya Dön
+                  </button>
                 </div>
               </div>
             );

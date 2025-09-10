@@ -27,8 +27,10 @@ export interface Round {
   roomCode: string;
   targetPlayerId: string | null;
   taskId: string | null;
-  status: "tasks" | "guessing" | "reveal" | "scoring" | "done";
+  status: "tasks" | "guessing" | "voting" | "scoring" | "done";
   guesses: Guess[];
+  guessDeadline?: number;
+  votingDeadline?: number;
   createdAt: Date;
 }
 
@@ -55,13 +57,30 @@ export interface Guess {
   targetPlayerId: string;
   text: string;
   votes: Vote[];
+  submittedAt: number;
 }
 
 export interface Vote {
   id: string;
+  fromPlayerId: string;
   guessId: string;
-  voterId: string;
   isCorrect: boolean;
+  submittedAt: number;
+}
+
+export interface ScoreBreakdown {
+  taskCompletion: number;
+  correctGuesses: number;
+  accurateGuess: number;
+  targetBonus: number;
+}
+
+export interface RoundScore {
+  playerId: string;
+  playerNickname: string;
+  points: number;
+  breakdown: ScoreBreakdown;
+  isTarget: boolean;
 }
 
 // Socket Event Types
@@ -186,6 +205,20 @@ export interface GameState {
   currentTask: Task | null;
   taskStats: TaskStats | null;
 
+  // Guess data
+  currentGuessTarget: Player | null;
+  guessDeadline: number | null;
+  currentGuesses: Guess[];
+  myGuess: Guess | null;
+
+  // Voting data
+  votingDeadline: number | null;
+  myVotes: Map<string, Vote>; // guessId -> Vote
+  actualTask: string | null;
+
+  // Scoring data
+  roundScores: RoundScore[];
+
   // UI state
   publicRooms: PublicRoom[];
 
@@ -197,6 +230,10 @@ export interface GameState {
   toggleReady: () => void;
   startGame: () => void;
   submitTaskDone: () => void;
+  submitGuess: (targetPlayerId: string, text: string) => void;
+  closeGuesses: (targetPlayerId: string) => void;
+  submitVote: (guessId: string, isCorrect: boolean) => void;
+  closeVoting: () => void;
   getPublicRooms: () => void;
   getRoomState: (roomCode: string) => void;
   clearError: () => void;
@@ -208,6 +245,16 @@ export interface GameState {
   setCurrentRound: (round: Round | null) => void;
   setCurrentTask: (task: Task | null) => void;
   setTaskStats: (stats: TaskStats | null) => void;
+  setCurrentGuessTarget: (player: Player | null) => void;
+  setGuessDeadline: (deadline: number | null) => void;
+  setCurrentGuesses: (guesses: Guess[]) => void;
+  setMyGuess: (guess: Guess | null) => void;
+  addGuess: (guess: Guess) => void;
+  setVotingDeadline: (deadline: number | null) => void;
+  setMyVotes: (votes: Map<string, Vote>) => void;
+  addVote: (guessId: string, vote: Vote) => void;
+  setActualTask: (task: string | null) => void;
+  setRoundScores: (scores: RoundScore[]) => void;
   updatePlayerInRoom: (playerId: string, updates: Partial<Player>) => void;
   addPlayerToRoom: (player: Player) => void;
   removePlayerFromRoom: (playerId: string) => void;

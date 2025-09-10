@@ -10,6 +10,12 @@ const {
   getPublicRooms,
   getTaskAssignments,
   submitTaskDone,
+  startGuessPhase,
+  submitGuess,
+  closeGuessWindow,
+  submitVote,
+  closeVoting,
+  startNextRound,
   handleDisconnect,
 } = require("./rooms");
 
@@ -264,19 +270,268 @@ const setupSocketEvents = (io) => {
           allCompleted: result.allCompleted,
         });
 
-        // Tüm görevler tamamlandıysa sonraki aşamaya geç
+        // Tüm görevler tamamlandıysa tahmin aşamasına geç
         if (result.allCompleted) {
           console.log(`🎯 Tüm görevler tamamlandı! (${roomCode})`);
 
-          // TODO: Adım 7'de tahmin aşamasına geçilecek
-          io.to(roomCode).emit("all_tasks_completed", {
-            message: "Tüm görevler tamamlandı! Tahmin aşaması başlıyor...",
-            stats: result.stats,
-          });
+          if (result.nextPhase && result.nextPhase.success) {
+            // Tahmin aşaması başladı
+            io.to(roomCode).emit("guess_phase_started", {
+              message: "Tahmin aşaması başlıyor!",
+              targetPlayer: result.nextPhase.targetPlayer,
+              deadline: result.nextPhase.deadline,
+              round: result.nextPhase.round,
+            });
+
+            // Tahmin penceresi açıldı
+            io.to(roomCode).emit("guess_window_open", {
+              targetPlayerId: result.nextPhase.targetPlayer.id,
+              targetPlayerNickname: result.nextPhase.targetPlayer.nickname,
+              deadline: result.nextPhase.deadline,
+            });
+
+            console.log(
+              `🎯 Tahmin aşaması başladı: ${result.nextPhase.targetPlayer.nickname}`
+            );
+          } else {
+            // Fallback - eski mesaj
+            io.to(roomCode).emit("all_tasks_completed", {
+              message: "Tüm görevler tamamlandı! Tahmin aşaması başlıyor...",
+              stats: result.stats,
+            });
+          }
         }
       } catch (error) {
         console.error("Submit task done error:", error);
         socket.emit("error", { message: "Görev tamamlanamadı" });
+      }
+    });
+
+    // Tahmin gönderme
+    socket.on("submit_guess", (data) => {
+      try {
+        const { roomCode, targetPlayerId, text } = data;
+        const room = getRoom(roomCode);
+        const player = getPlayer(socket.id);
+
+        if (!room || !player) {
+          socket.emit("error", { message: "Oda veya oyuncu bulunamadı" });
+          return;
+        }
+
+        if (!text || !text.trim()) {
+          socket.emit("error", { message: "Tahmin metni gerekli" });
+          return;
+        }
+
+        if (text.trim().length > 100) {
+          socket.emit("error", {
+            message: "Tahmin çok uzun (max 100 karakter)",
+          });
+          return;
+        }
+
+        const result = submitGuess(roomCode, socket.id, targetPlayerId, text);
+        if (!result.success) {
+          socket.emit("error", { message: result.error });
+          return;
+        }
+
+        console.log(
+          `🤔 Tahmin gönderildi: ${player.nickname} -> "${text.trim()}"`
+        );
+
+        // Tahmin gönderen oyuncuya onay
+        socket.emit("guess_submitted", {
+          guess: result.guess,
+          totalGuesses: result.totalGuesses,
+        });
+
+        // Odadaki tüm oyunculara tahmin bilgisi (tahmin metnini göstermeden)
+        socket.to(roomCode).emit("guess_submitted", {
+          guess: {
+            id: result.guess.id,
+            fromPlayerId: result.guess.fromPlayerId,
+            fromPlayerNickname: player.nickname,
+            targetPlayerId: result.guess.targetPlayerId,
+            submittedAt: result.guess.submittedAt,
+            // text gizli
+          },
+          totalGuesses: result.totalGuesses,
+        });
+      } catch (error) {
+        console.error("Submit guess error:", error);
+        socket.emit("error", { message: "Tahmin gönderilemedi" });
+      }
+    });
+
+    // Tahmin penceresini kapat
+    socket.on("close_guesses", (data) => {
+      try {
+        const { roomCode, targetPlayerId } = data;
+        const room = getRoom(roomCode);
+        const player = getPlayer(socket.id);
+
+        if (!room || !player) {
+          socket.emit("error", { message: "Oda veya oyuncu bulunamadı" });
+          return;
+        }
+
+        // Sadece host veya hedef oyuncu kapatabilir
+        if (!player.isHost && socket.id !== targetPlayerId) {
+          socket.emit("error", {
+            message: "Tahmin penceresini kapatma yetkiniz yok",
+          });
+          return;
+        }
+
+        const result = closeGuessWindow(roomCode, targetPlayerId);
+        if (!result.success) {
+          socket.emit("error", { message: result.error });
+          return;
+        }
+
+        console.log(`🗳️  Oylama aşaması başladı: ${roomCode}`);
+
+        // Tahminleri ve gerçek görevi göster + oylama başlat
+        const taskAssignments = getTaskAssignments(roomCode);
+        const targetTask = taskAssignments
+          ? taskAssignments.get(targetPlayerId)
+          : null;
+
+        io.to(roomCode).emit("guess_window_closed", {
+          targetPlayerId,
+        });
+
+        io.to(roomCode).emit("voting_started", {
+          targetPlayerId,
+          targetPlayerNickname:
+            getPlayer(targetPlayerId)?.nickname || "Bilinmeyen",
+          taskId: targetTask?.id || null,
+          taskText: targetTask?.text || "Görev bulunamadı",
+          guesses: result.guesses,
+          votingDeadline: result.votingDeadline,
+        });
+      } catch (error) {
+        console.error("Close guesses error:", error);
+        socket.emit("error", { message: "Tahmin penceresi kapatılamadı" });
+      }
+    });
+
+    // Oy verme
+    socket.on("submit_vote", (data) => {
+      try {
+        const { roomCode, guessId, isCorrect } = data;
+        const room = getRoom(roomCode);
+        const player = getPlayer(socket.id);
+
+        if (!room || !player) {
+          socket.emit("error", { message: "Oda veya oyuncu bulunamadı" });
+          return;
+        }
+
+        if (typeof isCorrect !== "boolean") {
+          socket.emit("error", { message: "Geçersiz oy değeri" });
+          return;
+        }
+
+        const result = submitVote(roomCode, socket.id, guessId, isCorrect);
+        if (!result.success) {
+          socket.emit("error", { message: result.error });
+          return;
+        }
+
+        console.log(
+          `🗳️  Oy gönderildi: ${player.nickname} -> ${
+            isCorrect ? "Doğru" : "Yanlış"
+          }`
+        );
+
+        // Oy gönderen oyuncuya onay
+        socket.emit("vote_submitted", {
+          vote: result.vote,
+          totalVotes: result.totalVotes,
+        });
+
+        // Odadaki tüm oyunculara oy bilgisi (oy detayını göstermeden)
+        socket.to(roomCode).emit("vote_submitted", {
+          guessId,
+          totalVotes: result.totalVotes,
+          voterNickname: player.nickname,
+        });
+      } catch (error) {
+        console.error("Submit vote error:", error);
+        socket.emit("error", { message: "Oy gönderilemedi" });
+      }
+    });
+
+    // Oylama aşamasını kapat
+    socket.on("close_voting", (data) => {
+      try {
+        const { roomCode } = data;
+        const room = getRoom(roomCode);
+        const player = getPlayer(socket.id);
+
+        if (!room || !player) {
+          socket.emit("error", { message: "Oda veya oyuncu bulunamadı" });
+          return;
+        }
+
+        // Sadece host kapatabilir
+        if (!player.isHost) {
+          socket.emit("error", {
+            message: "Oylama aşamasını kapatma yetkiniz yok",
+          });
+          return;
+        }
+
+        const result = closeVoting(roomCode);
+        if (!result.success) {
+          socket.emit("error", { message: result.error });
+          return;
+        }
+
+        console.log(`🏆 Puanlama tamamlandı: ${roomCode}`);
+
+        // Puanlama sonuçlarını göster
+        io.to(roomCode).emit("voting_closed", {
+          scores: result.scores,
+          players: result.players,
+        });
+
+        // 3 saniye sonra sonraki round'a geç (veya oyunu bitir)
+        setTimeout(() => {
+          const nextRoundResult = startNextRound(roomCode);
+          if (nextRoundResult.success) {
+            if (nextRoundResult.gameEnded) {
+              // Oyun bitti
+              io.to(roomCode).emit("game_ended", {
+                finalScores: nextRoundResult.finalScores,
+                winner: nextRoundResult.finalScores.reduce((prev, current) =>
+                  prev.score > current.score ? prev : current
+                ),
+              });
+            } else {
+              // Sonraki round başladı
+              io.to(roomCode).emit("next_round_started", {
+                room: nextRoundResult.room,
+                round: nextRoundResult.round,
+                targetPlayer: nextRoundResult.targetPlayer,
+              });
+
+              // Her oyuncuya yeni görevini gönder
+              nextRoundResult.taskAssignments.forEach((task, playerId) => {
+                io.to(playerId).emit("task_assigned", {
+                  taskId: task.id,
+                  text: task.text,
+                });
+              });
+            }
+          }
+        }, 3000);
+      } catch (error) {
+        console.error("Close voting error:", error);
+        socket.emit("error", { message: "Oylama kapatılamadı" });
       }
     });
 

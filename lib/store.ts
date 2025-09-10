@@ -59,6 +59,14 @@ export const useGameStore = create<GameStore>()(
       currentRound: null,
       currentTask: null,
       taskStats: null,
+      currentGuessTarget: null,
+      guessDeadline: null,
+      currentGuesses: [],
+      myGuess: null,
+      votingDeadline: null,
+      myVotes: new Map(),
+      actualTask: null,
+      roundScores: [],
       publicRooms: [],
       connectionState: initialConnectionState,
 
@@ -221,7 +229,131 @@ export const useGameStore = create<GameStore>()(
             set({
               taskStats: data.stats,
             });
-            // TODO: Adım 7'de tahmin aşamasına geçilecek
+          });
+
+          // Guess phase events
+          socketClient.on("guess_phase_started", (data) => {
+            console.log("GUESS PHASE STARTED:", data);
+            set({
+              currentGuessTarget: data.targetPlayer,
+              guessDeadline: data.deadline,
+              currentGuesses: [],
+              myGuess: null,
+            });
+          });
+
+          socketClient.on("guess_window_open", (data) => {
+            console.log("GUESS WINDOW OPEN:", data);
+            set({
+              currentGuessTarget: {
+                id: data.targetPlayerId,
+                nickname: data.targetPlayerNickname,
+                isReady: false,
+                isHost: false,
+                score: 0,
+                isConnected: true,
+                joinedAt: new Date(),
+              },
+              guessDeadline: data.deadline,
+            });
+          });
+
+          socketClient.on("guess_submitted", (data) => {
+            console.log("GUESS SUBMITTED:", data);
+            const state = get();
+
+            // Kendi tahmini ise myGuess'e kaydet
+            if (data.guess.fromPlayerId === socketClient.socketId) {
+              set({
+                myGuess: data.guess,
+              });
+            }
+
+            // Tahmin listesine ekle (eğer zaten yoksa)
+            const existingGuess = state.currentGuesses.find(
+              (g) => g.id === data.guess.id
+            );
+            if (!existingGuess) {
+              set({
+                currentGuesses: [...state.currentGuesses, data.guess],
+              });
+            }
+          });
+
+          socketClient.on("guess_window_closed", (data) => {
+            console.log("GUESS WINDOW CLOSED:", data);
+            set({
+              guessDeadline: null,
+            });
+          });
+
+          socketClient.on("reveal", (data) => {
+            console.log("REVEAL:", data);
+            set({
+              currentGuesses: data.guesses,
+            });
+          });
+
+          // Voting events
+          socketClient.on("voting_started", (data) => {
+            console.log("VOTING STARTED:", data);
+            set({
+              currentGuesses: data.guesses,
+              actualTask: data.taskText,
+              votingDeadline: data.votingDeadline,
+              myVotes: new Map(),
+            });
+          });
+
+          socketClient.on("vote_submitted", (data) => {
+            console.log("VOTE SUBMITTED:", data);
+            // Vote feedback handled locally
+          });
+
+          socketClient.on("voting_closed", (data) => {
+            console.log("VOTING CLOSED:", data);
+            set({
+              roundScores: data.scores,
+              votingDeadline: null,
+            });
+          });
+
+          // Round events
+          socketClient.on("next_round_started", (data) => {
+            console.log("NEXT ROUND STARTED:", data);
+            set({
+              currentRoom: data.room,
+              currentRound: data.round,
+              currentGuessTarget: null,
+              guessDeadline: null,
+              votingDeadline: null,
+              currentGuesses: [],
+              myGuess: null,
+              myVotes: new Map(),
+              actualTask: null,
+              roundScores: [],
+            });
+          });
+
+          socketClient.on("game_ended", (data) => {
+            console.log("GAME ENDED:", data);
+            set((state) => ({
+              currentRoom: state.currentRoom
+                ? {
+                    ...state.currentRoom,
+                    status: "ended" as const,
+                    players: data.finalScores,
+                  }
+                : null,
+              currentGuessTarget: null,
+              guessDeadline: null,
+              votingDeadline: null,
+              currentGuesses: [],
+              myGuess: null,
+              myVotes: new Map(),
+              actualTask: null,
+              roundScores: data.finalScores,
+            }));
           });
 
           socketClient.on("public_rooms", (data) => {
@@ -301,6 +433,49 @@ export const useGameStore = create<GameStore>()(
         }
       },
 
+      submitGuess: (targetPlayerId: string, text: string) => {
+        const { currentRoom } = get();
+        if (currentRoom) {
+          socketClient.submitGuess(currentRoom.code, targetPlayerId, text);
+        }
+      },
+
+      closeGuesses: (targetPlayerId: string) => {
+        const { currentRoom } = get();
+        if (currentRoom) {
+          socketClient.closeGuesses(currentRoom.code, targetPlayerId);
+        }
+      },
+
+      submitVote: (guessId: string, isCorrect: boolean) => {
+        const { currentRoom } = get();
+        if (currentRoom) {
+          socketClient.submitVote(currentRoom.code, guessId, isCorrect);
+
+          // Local vote tracking
+          const vote = {
+            id: `vote_${Date.now()}`,
+            fromPlayerId: socketClient.socketId || "",
+            guessId,
+            isCorrect,
+            submittedAt: Date.now(),
+          };
+
+          set((state) => {
+            const newVotes = new Map(state.myVotes);
+            newVotes.set(guessId, vote);
+            return { myVotes: newVotes };
+          });
+        }
+      },
+
+      closeVoting: () => {
+        const { currentRoom } = get();
+        if (currentRoom) {
+          socketClient.closeVoting(currentRoom.code);
+        }
+      },
+
       getPublicRooms: () => {
         socketClient.getPublicRooms();
       },
@@ -343,6 +518,52 @@ export const useGameStore = create<GameStore>()(
 
       setTaskStats: (stats) => {
         set({ taskStats: stats });
+      },
+
+      setCurrentGuessTarget: (player) => {
+        set({ currentGuessTarget: player });
+      },
+
+      setGuessDeadline: (deadline) => {
+        set({ guessDeadline: deadline });
+      },
+
+      setCurrentGuesses: (guesses) => {
+        set({ currentGuesses: guesses });
+      },
+
+      setMyGuess: (guess) => {
+        set({ myGuess: guess });
+      },
+
+      addGuess: (guess) => {
+        set((state) => ({
+          currentGuesses: [...state.currentGuesses, guess],
+        }));
+      },
+
+      setVotingDeadline: (deadline) => {
+        set({ votingDeadline: deadline });
+      },
+
+      setMyVotes: (votes) => {
+        set({ myVotes: votes });
+      },
+
+      addVote: (guessId, vote) => {
+        set((state) => {
+          const newVotes = new Map(state.myVotes);
+          newVotes.set(guessId, vote);
+          return { myVotes: newVotes };
+        });
+      },
+
+      setActualTask: (task) => {
+        set({ actualTask: task });
+      },
+
+      setRoundScores: (scores) => {
+        set({ roundScores: scores });
       },
 
       setPublicRooms: (rooms) => {

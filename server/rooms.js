@@ -214,6 +214,371 @@ const getPublicRooms = () => {
     }));
 };
 
+// Tahmin aşamasını başlat
+const startGuessPhase = (roomCode) => {
+  const room = rooms.get(roomCode);
+  const currentRound = rounds.get(room.currentRoundId);
+
+  if (!room || !currentRound) {
+    return { success: false, error: "Oda veya round bulunamadı" };
+  }
+
+  // İlk tahmin edilecek oyuncuyu seç (rastgele)
+  const availablePlayers = room.players.filter((p) => p.isConnected);
+  if (availablePlayers.length === 0) {
+    return { success: false, error: "Aktif oyuncu yok" };
+  }
+
+  const targetPlayer =
+    availablePlayers[Math.floor(Math.random() * availablePlayers.length)];
+
+  // Round'u güncelle
+  currentRound.status = "guessing";
+  currentRound.targetPlayerId = targetPlayer.id;
+  currentRound.guessDeadline = Date.now() + 60 * 1000; // 60 saniye
+  currentRound.guesses = [];
+
+  console.log(
+    `🎯 Tahmin aşaması başladı: ${roomCode} - Target: ${targetPlayer.nickname}`
+  );
+
+  return {
+    success: true,
+    targetPlayer,
+    round: currentRound,
+    deadline: currentRound.guessDeadline,
+  };
+};
+
+// Tahmin gönderme
+const submitGuess = (roomCode, socketId, targetPlayerId, guessText) => {
+  const room = rooms.get(roomCode);
+  const currentRound = rounds.get(room?.currentRoundId);
+  const player = players.get(socketId);
+
+  if (!room || !currentRound || !player) {
+    return { success: false, error: "Geçersiz durum" };
+  }
+
+  if (currentRound.status !== "guessing") {
+    return { success: false, error: "Tahmin aşaması değil" };
+  }
+
+  if (currentRound.targetPlayerId !== targetPlayerId) {
+    return { success: false, error: "Geçersiz hedef oyuncu" };
+  }
+
+  if (socketId === targetPlayerId) {
+    return { success: false, error: "Kendi görevinizi tahmin edemezsiniz" };
+  }
+
+  // Süre kontrolü
+  if (Date.now() > currentRound.guessDeadline) {
+    return { success: false, error: "Tahmin süresi doldu" };
+  }
+
+  // Önceki tahmini kontrol et (bir kişi bir kez tahmin edebilir)
+  const existingGuess = currentRound.guesses.find(
+    (g) => g.fromPlayerId === socketId
+  );
+  if (existingGuess) {
+    return { success: false, error: "Zaten tahmin gönderdiniz" };
+  }
+
+  // Tahmin oluştur
+  const guess = {
+    id: generateUniqueId(),
+    roundId: currentRound.id,
+    fromPlayerId: socketId,
+    targetPlayerId,
+    text: guessText.trim(),
+    votes: [],
+    submittedAt: Date.now(),
+  };
+
+  currentRound.guesses.push(guess);
+
+  console.log(`🤔 Tahmin gönderildi: ${player.nickname} -> "${guessText}"`);
+
+  return { success: true, guess, totalGuesses: currentRound.guesses.length };
+};
+
+// Tahmin penceresini kapat ve voting aşamasına geç
+const closeGuessWindow = (roomCode, targetPlayerId) => {
+  const room = rooms.get(roomCode);
+  const currentRound = rounds.get(room?.currentRoundId);
+
+  if (!room || !currentRound) {
+    return { success: false, error: "Geçersiz durum" };
+  }
+
+  if (currentRound.targetPlayerId !== targetPlayerId) {
+    return { success: false, error: "Geçersiz hedef oyuncu" };
+  }
+
+  // Voting aşamasına geç
+  currentRound.status = "voting";
+  currentRound.votingDeadline = Date.now() + 45 * 1000; // 45 saniye oylama süresi
+
+  console.log(
+    `🗳️  Oylama aşaması başladı: ${roomCode} - ${currentRound.guesses.length} tahmin`
+  );
+
+  return {
+    success: true,
+    round: currentRound,
+    guesses: currentRound.guesses,
+    votingDeadline: currentRound.votingDeadline,
+  };
+};
+
+// Oy verme
+const submitVote = (roomCode, socketId, guessId, isCorrect) => {
+  const room = rooms.get(roomCode);
+  const currentRound = rounds.get(room?.currentRoundId);
+  const player = players.get(socketId);
+
+  if (!room || !currentRound || !player) {
+    return { success: false, error: "Geçersiz durum" };
+  }
+
+  if (currentRound.status !== "voting") {
+    return { success: false, error: "Oylama aşaması değil" };
+  }
+
+  // Süre kontrolü
+  if (Date.now() > currentRound.votingDeadline) {
+    return { success: false, error: "Oylama süresi doldu" };
+  }
+
+  // Hedef oyuncu kendi tahminlerine oy veremez
+  if (socketId === currentRound.targetPlayerId) {
+    return { success: false, error: "Hedef oyuncu oy veremez" };
+  }
+
+  // Tahmin var mı kontrol et
+  const guess = currentRound.guesses.find((g) => g.id === guessId);
+  if (!guess) {
+    return { success: false, error: "Tahmin bulunamadı" };
+  }
+
+  // Kendi tahminine oy veremez
+  if (guess.fromPlayerId === socketId) {
+    return { success: false, error: "Kendi tahmininize oy veremezsiniz" };
+  }
+
+  // Önceki oyunu kontrol et
+  const existingVote = guess.votes?.find((v) => v.fromPlayerId === socketId);
+  if (existingVote) {
+    return { success: false, error: "Bu tahmin için zaten oy verdiniz" };
+  }
+
+  // Oy oluştur
+  const vote = {
+    id: generateUniqueId(),
+    fromPlayerId: socketId,
+    guessId,
+    isCorrect,
+    submittedAt: Date.now(),
+  };
+
+  // Votes array'ini initialize et
+  if (!guess.votes) {
+    guess.votes = [];
+  }
+
+  guess.votes.push(vote);
+
+  console.log(
+    `🗳️  Oy gönderildi: ${player.nickname} -> ${guess.text} (${
+      isCorrect ? "Doğru" : "Yanlış"
+    })`
+  );
+
+  return { success: true, vote, totalVotes: guess.votes.length };
+};
+
+// Oylama aşamasını kapat ve puanlama yap
+const closeVoting = (roomCode) => {
+  const room = rooms.get(roomCode);
+  const currentRound = rounds.get(room?.currentRoundId);
+
+  if (!room || !currentRound) {
+    return { success: false, error: "Geçersiz durum" };
+  }
+
+  if (currentRound.status !== "voting") {
+    return { success: false, error: "Oylama aşaması değil" };
+  }
+
+  // Scoring aşamasına geç
+  currentRound.status = "scoring";
+
+  // Puanları hesapla
+  const scores = calculateRoundScores(currentRound, room.players);
+
+  // Oyuncu puanlarını güncelle
+  scores.forEach((scoreData) => {
+    const player = room.players.find((p) => p.id === scoreData.playerId);
+    if (player) {
+      player.score += scoreData.points;
+    }
+  });
+
+  console.log(`🏆 Puanlama tamamlandı: ${roomCode}`);
+
+  return {
+    success: true,
+    round: currentRound,
+    scores,
+    players: room.players,
+  };
+};
+
+// Round puanlarını hesapla
+const calculateRoundScores = (round, players) => {
+  const scores = [];
+  const playersMap = new Map(players.map((p) => [p.id, p]));
+
+  // Her oyuncu için puan hesapla
+  players.forEach((player) => {
+    let points = 0;
+    let breakdown = {
+      taskCompletion: 0,
+      correctGuesses: 0,
+      accurateGuess: 0,
+      targetBonus: 0,
+    };
+
+    // 1. Görev tamamlama puanı (tüm oyuncular)
+    breakdown.taskCompletion = 10;
+    points += breakdown.taskCompletion;
+
+    // 2. Hedef oyuncu değilse tahmin/oylama puanları
+    if (player.id !== round.targetPlayerId) {
+      // Kendi tahminini bul
+      const myGuess = round.guesses.find((g) => g.fromPlayerId === player.id);
+
+      // Verdiği doğru oylar
+      round.guesses.forEach((guess) => {
+        const correctVotes = guess.votes?.filter((v) => v.isCorrect) || [];
+        const incorrectVotes = guess.votes?.filter((v) => !v.isCorrect) || [];
+        const myVote = guess.votes?.find((v) => v.fromPlayerId === player.id);
+
+        if (myVote) {
+          // Çoğunluğun doğru dediği tahminlere doğru oy verdiyse +5
+          // Çoğunluğun yanlış dediği tahminlere yanlış oy verdiyse +5
+          const isCorrectByMajority =
+            correctVotes.length > incorrectVotes.length;
+          if (
+            (myVote.isCorrect && isCorrectByMajority) ||
+            (!myVote.isCorrect && !isCorrectByMajority)
+          ) {
+            breakdown.correctGuesses += 5;
+            points += 5;
+          }
+        }
+      });
+
+      // Kendi tahmini için bonus
+      if (myGuess && myGuess.votes && myGuess.votes.length > 0) {
+        const correctVotes = myGuess.votes.filter((v) => v.isCorrect);
+        const totalVotes = myGuess.votes.length;
+
+        // Tahmininin %60+ doğru oylanması durumunda bonus
+        if (correctVotes.length / totalVotes >= 0.6) {
+          breakdown.accurateGuess = 15;
+          points += breakdown.accurateGuess;
+        }
+      }
+    } else {
+      // 3. Hedef oyuncu bonusu (tahmin edilme zorluğuna göre)
+      const totalGuesses = round.guesses.length;
+      if (totalGuesses > 0) {
+        // Tahmin sayısına göre bonus
+        breakdown.targetBonus = Math.min(20, totalGuesses * 3);
+        points += breakdown.targetBonus;
+      }
+    }
+
+    scores.push({
+      playerId: player.id,
+      playerNickname: player.nickname,
+      points,
+      breakdown,
+      isTarget: player.id === round.targetPlayerId,
+    });
+  });
+
+  return scores;
+};
+
+// Sonraki round'u başlat
+const startNextRound = (roomCode) => {
+  const room = rooms.get(roomCode);
+  const currentRound = rounds.get(room?.currentRoundId);
+
+  if (!room || !currentRound) {
+    return { success: false, error: "Geçersiz durum" };
+  }
+
+  // Önceki hedef oyuncuyu bul
+  const previousTargetId = currentRound.targetPlayerId;
+
+  // Henüz hedef olmamış oyuncuları bul
+  const playedRounds = Array.from(rounds.values()).filter(
+    (r) => r.roomCode === roomCode && r.status === "scoring"
+  );
+  const previousTargetIds = playedRounds.map((r) => r.targetPlayerId);
+
+  const availablePlayers = room.players.filter(
+    (p) => p.isConnected && !previousTargetIds.includes(p.id)
+  );
+
+  // Tüm oyuncular hedef olduysa oyunu bitir
+  if (availablePlayers.length === 0) {
+    room.status = "ended";
+    console.log(`🏁 Oyun bitti: ${roomCode} - Tüm oyuncular hedef oldu`);
+    return { success: true, gameEnded: true, finalScores: room.players };
+  }
+
+  // Sonraki hedef oyuncuyu seç
+  const nextTarget = availablePlayers[0]; // İlk sıradaki
+
+  // Yeni round oluştur
+  const newRoundId = generateUniqueId();
+  const newRound = {
+    id: newRoundId,
+    roomCode,
+    targetPlayerId: nextTarget.id,
+    taskId: null,
+    status: "tasks",
+    guesses: [],
+    createdAt: new Date(),
+  };
+
+  rounds.set(newRoundId, newRound);
+  room.currentRoundId = newRoundId;
+
+  // Yeni görevler ata
+  const playerIds = room.players.map((p) => p.id);
+  const assignments = assignTasksToRoom(roomCode, playerIds);
+  taskAssignments.set(roomCode, assignments);
+
+  console.log(
+    `🎯 Yeni round başladı: ${roomCode} - Target: ${nextTarget.nickname}`
+  );
+
+  return {
+    success: true,
+    gameEnded: false,
+    room,
+    round: newRound,
+    targetPlayer: nextTarget,
+    taskAssignments: assignments,
+  };
+};
+
 // Görev tamamlama
 const submitTaskDone = (roomCode, socketId) => {
   const room = rooms.get(roomCode);
@@ -234,7 +599,18 @@ const submitTaskDone = (roomCode, socketId) => {
   // Tüm görevler tamamlandı mı kontrol et
   if (areAllTasksCompleted(assignments)) {
     console.log(`🎯 Tüm görevler tamamlandı! (${roomCode})`);
-    // TODO: Sonraki aşamaya geç (tahmin etme)
+
+    // Tahmin aşamasına geç
+    const guessPhaseResult = startGuessPhase(roomCode);
+    if (guessPhaseResult.success) {
+      return {
+        success: true,
+        task,
+        allCompleted: true,
+        stats,
+        nextPhase: guessPhaseResult,
+      };
+    }
   }
 
   const stats = getTaskStats(assignments);
@@ -315,6 +691,19 @@ module.exports = {
 
   // Task management
   submitTaskDone,
+
+  // Guess management
+  startGuessPhase,
+  submitGuess,
+  closeGuessWindow,
+
+  // Voting management
+  submitVote,
+  closeVoting,
+
+  // Round management
+  startNextRound,
+  calculateRoundScores,
 
   // Player management
   togglePlayerReady,
