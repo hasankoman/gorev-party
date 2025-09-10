@@ -1,24 +1,43 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-## Getting Started
+## 🚀 Quick Start
 
-First, run the development server:
+### Development
 
 ```bash
+# Install dependencies
+npm install
+
+# Run both Next.js and Socket.IO server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+
+# Open http://localhost:3000 in your browser
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 🌐 Deploy to Production (5 minutes)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+# Automatic deployment script
+./scripts/deploy.sh
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+# Or follow the detailed guide
+```
+
+📚 **Deployment Guides:**
+
+- 🚀 [**QUICK-START.md**](./QUICK-START.md) - 5 dakikada deploy et
+- 📖 [**DEPLOYMENT.md**](./DEPLOYMENT.md) - Detaylı deployment rehberi
+- ✅ [**DEPLOYMENT-CHECKLIST.md**](./DEPLOYMENT-CHECKLIST.md) - Go-live checklist
+
+### 🎮 How to Play
+
+1. **Oda Oluştur**: Ana sayfadan public/private oda oluştur
+2. **Arkadaşlarını Davet Et**: Oda kodunu paylaş veya public odalar listesinden katılsınlar
+3. **Hazır Ol**: Herkes "Hazırım" butonuna bassın
+4. **Görev Al**: Host oyunu başlattığında herkese rastgele görev verilir
+5. **Görevini Tamamla**: "Görevimi Tamamladım" butonuna bas
+6. **Tahmin Et**: Diğer oyuncuların görevlerini tahmin et (Coming soon!)
+7. **Puan Kazan**: Doğru tahminlerle puan topla
 
 ## Learn More
 
@@ -34,3 +53,4 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+# gorev-party
